@@ -21,7 +21,7 @@ import json
 # ------------------------------------------------------------
 # Bot Version
 # ------------------------------------------------------------
-BOT_VERSION = "1.0.0"
+BOT_VERSION = "1.0.1"
 
 # ------------------------------------------------------------
 # Auto Update Import
@@ -1123,3 +1123,4 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
