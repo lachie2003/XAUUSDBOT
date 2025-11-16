@@ -825,7 +825,7 @@ def send_order(setup: Setup):
 
         def send_order(setup: Setup):
 
-    ...
+    
 
     if chart_path:
         send_telegram_document(
@@ -1330,6 +1330,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
