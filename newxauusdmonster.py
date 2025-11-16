@@ -823,11 +823,7 @@ def send_order(setup: Setup):
             f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
         )
 
-        def send_order(setup: Setup):
-
-    ...
-
-    if chart_path:
+        def send_order(setup: Setup): if chart_path:
         send_telegram_document(
             chart_path,
             caption="📈 DRY RUN – trade setup chart"
@@ -1330,6 +1326,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
