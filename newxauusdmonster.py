@@ -800,12 +800,15 @@ def send_order(setup: Setup):
 
     if lots <= 0:
         dbg("Zero lots")
-        log_event("errors.log", "calc_lots returned 0")
+        log_error("calc_lots returned 0")
         return
 
     # create chart (before order so we at least see the setup)
     chart_path = create_trade_chart(setup)
 
+    # =======================
+    # DRY RUN (no live trade)
+    # =======================
     if DRY_RUN:
         print("[DRY] ORDER:", setup.direction, lots)
         log_event(
@@ -819,72 +822,80 @@ def send_order(setup: Setup):
             f"{setup.direction.upper()} {lots} lots\n"
             f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
         )
+
         if chart_path:
             send_telegram_document(
                 chart_path,
                 caption="📈 DRY RUN — trade setup chart"
             )
         return
-req = {
-    "action": mt5.TRADE_ACTION_DEAL,
-    "symbol": SYMBOL,
-    "volume": lots,
-    "type": mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
-    "price": price,
-    "sl": setup.sl,
-    "tp": setup.tp,
-    "magic": MAGIC,
-    "comment": "TJR",
-    "deviation": 50,
-    "type_filling": mt5.ORDER_FILLING_IOC
-}
-res = mt5.order_send(req)
 
-# If the order was successful, log it to CSV
-if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-    log_trade({
-        "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+    # =======================
+    # LIVE ORDER EXECUTION
+    # =======================
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
         "symbol": SYMBOL,
-        "direction": setup.direction,
-        "entry": price,
+        "volume": lots,
+        "type": mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
+        "price": price,
         "sl": setup.sl,
         "tp": setup.tp,
-        "risk_pct": RISK_PER_TRADE * 100,  # adjust name if needed
-        "result": "open",
-    })
-else:
-    # Log failure if it didn’t open
-    log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
-    print("[LIVE] ORDER failed", res.retcode)
+        "magic": MAGIC,
+        "comment": "TJR",
+        "deviation": 50,
+        "type_filling": mt5.ORDER_FILLING_IOC
+    }
+    res = mt5.order_send(req)
 
-# LOG: trade attempt
-log_event(
-    "trades.log",
-    f"TRADE PLACED | {setup.direction.upper()} | Lots: {lots:.2f} | "
-    f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f} | "
-    f"retcode={res.retcode}"
-)
+    # =======================
+    # LOGGING FOR LIVE TRADES
+    # =======================
+    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+        # trade opened successfully
+        log_trade({
+            "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "symbol": SYMBOL,
+            "direction": setup.direction,
+            "entry": price,
+            "sl": setup.sl,
+            "tp": setup.tp,
+            "risk_pct": RISK_PER_TRADE * 100,
+            "result": "open",
+        })
+    else:
+        # trade failed
+        log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
+        print("[LIVE] ORDER FAILED", res.retcode)
 
-update_state(last_trade={
-    "direction": setup.direction,
-    "entry": round(price, 2),
-    "sl": round(setup.sl, 2),
-    "tp": round(setup.tp, 2),
-    "lots": lots,
-    "retcode": res.retcode,
-})
-
-send_telegram(
-    f"🚀 <b>TRADE PLACED</b>\n"
-    f"{setup.direction.upper()} {lots} lots\n"
-    f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
-)
-
-if chart_path:
-    send_telegram_document(
-        chart_path,
-        caption="📈 Live trade — setup chart"
+    # still log attempt for dashboard + history
+    log_event(
+        "trades.log",
+        f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
+        f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f} | "
+        f"retcode={res.retcode}"
     )
+
+    update_state(last_trade={
+        "direction": setup.direction,
+        "entry": round(price, 2),
+        "sl": round(setup.sl, 2),
+        "tp": round(setup.tp, 2),
+        "lots": lots,
+        "retcode": res.retcode,
+    })
+
+    send_telegram(
+        f"🚀 <b>TRADE PLACED</b>\n"
+        f"{setup.direction.upper()} {lots} lots\n"
+        f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
+    )
+
+    if chart_path:
+        send_telegram_document(
+            chart_path,
+            caption="📈 Live trade — setup chart"
+        )
 
 
 # ============================================================
@@ -1317,6 +1328,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
