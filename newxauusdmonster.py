@@ -601,7 +601,7 @@ def room_to_target(direction, entry, sl):
     rr = abs(dist) / abs((entry - sl) / point)
     return rr >= 1.2, rr
 
-# ============================================================
+# # ============================================================
 # SETUP FINDER
 # ============================================================
 
@@ -673,7 +673,7 @@ def find_setup():
         dbg("Score low")
         return None
 
-        # Update dashboard state with setup info
+    # Update dashboard state with setup info
     update_state(last_setup={
         "direction": direction,
         "entry": round(entry, 2),
@@ -696,7 +696,6 @@ def find_setup():
 
     # TELEGRAM: SETUP DETECTED
     send_telegram(
-
         f"📊 <b>Setup Detected</b>\n"
         f"Direction: {direction.upper()}\n"
         f"Entry: {entry}\n"
@@ -704,53 +703,6 @@ def find_setup():
     )
 
     return Setup(direction, entry, sl, tp, score, rationale)
-def create_trade_chart(setup: Setup) -> str:
-    """
-    Save a simple M5 close-price chart with entry/SL/TP lines.
-    Returns the filepath, or "" if failed.
-    """
-    try:
-        import matplotlib.pyplot as plt
-    except Exception as e:
-        log_event("errors.log", f"matplotlib not available for chart: {e}")
-        return ""
-
-    df = fetch(SYMBOL, mt5.TIMEFRAME_M5, 200)
-    if df.empty:
-        log_event("errors.log", "No M5 data for trade chart")
-        return ""
-
-    df = df.tail(120)
-
-    try:
-        plt.figure(figsize=(10, 5))
-        plt.plot(df["time"], df["close"], linewidth=1.2)
-
-        # horizontal lines
-        plt.axhline(setup.entry, linestyle="--", linewidth=0.9)
-        plt.axhline(setup.sl, linestyle="--", linewidth=0.9)
-        plt.axhline(setup.tp, linestyle="--", linewidth=0.9)
-
-        plt.title(
-            f"{SYMBOL} {setup.direction.upper()} "
-            f"Entry {setup.entry:.2f} SL {setup.sl:.2f} TP {setup.tp:.2f} "
-            f"Score {setup.score:.1f}"
-        )
-        plt.xlabel("Time (M5)")
-        plt.ylabel("Price")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-
-        fname = f"{SYMBOL}_{dt.datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.png"
-        fpath = os.path.join(CHART_DIR, fname)
-        plt.savefig(fpath, dpi=120)
-        plt.close()
-
-        log_event("events.log", f"Trade chart saved: {fpath}")
-        return fpath
-    except Exception as e:
-        log_event("errors.log", f"Failed to create trade chart: {e}")
-        return ""
 
 # ============================================================
 # RISK & ORDER EXECUTION
@@ -789,7 +741,111 @@ def open_positions():
     return sum(1 for p in pos if p.magic == MAGIC)
    
 def send_order(setup: Setup):
-    print("send_order CALLED (stub only)", setup)
+    info = mt5.symbol_info(SYMBOL)
+    tick = mt5.symbol_info_tick(SYMBOL)
+    if not info or not tick:
+        log_event("errors.log", "No symbol info/tick in send_order")
+        return
+
+    price = tick.ask if setup.direction == "buy" else tick.bid
+    lots = calc_lots(price, setup.sl)
+
+    if lots <= 0:
+        dbg("Zero lots")
+        log_error("calc_lots returned 0")
+        return
+
+    # create chart before order so we at least see the setup
+    chart_path = create_trade_chart(setup)
+
+    # =======================
+    # DRY RUN (no live trade)
+    # =======================
+    if DRY_RUN:
+        print("[DRY] ORDER:", setup.direction, lots)
+        log_event(
+            "trades.log",
+            f"DRY RUN | {setup.direction.upper()} | Lots: {lots:.2f} | "
+            f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f}"
+        )
+
+        send_telegram(
+            f"🧪 <b>DRY RUN TRADE</b>\n"
+            f"{setup.direction.upper()} {lots} lots\n"
+            f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
+        )
+
+        if chart_path:
+            send_telegram_document(
+                chart_path,
+                caption="📈 DRY RUN – trade setup chart"
+            )
+        return
+
+    # =======================
+    # LIVE ORDER EXECUTION
+    # =======================
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": SYMBOL,
+        "volume": lots,
+        "type": mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
+        "price": price,
+        "sl": setup.sl,
+        "tp": setup.tp,
+        "magic": MAGIC,
+        "comment": "TJR",
+        "deviation": 50,
+        "type_filling": mt5.ORDER_FILLING_IOC
+    }
+    res = mt5.order_send(req)
+
+    # =======================
+    # LOGGING FOR LIVE TRADES
+    # =======================
+    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+        log_trade({
+            "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "symbol": SYMBOL,
+            "direction": setup.direction,
+            "entry": price,
+            "sl": setup.sl,
+            "tp": setup.tp,
+            "risk_pct": RISK_PER_TRADE * 100,
+            "result": "open",
+        })
+    else:
+        log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
+        print("[LIVE] ORDER FAILED:", res.retcode)
+
+    # legacy event log
+    log_event(
+        "trades.log",
+        f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
+        f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f} | "
+        f"retcode={res.retcode}"
+    )
+
+    update_state(last_trade={
+        "direction": setup.direction,
+        "entry": round(price, 2),
+        "sl": round(setup.sl, 2),
+        "tp": round(setup.tp, 2),
+        "lots": lots,
+        "retcode": res.retcode,
+    })
+
+    send_telegram(
+        f"🚀 <b>TRADE PLACED</b>\n"
+        f"{setup.direction.upper()} {lots} lots\n"
+        f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
+    )
+
+    if chart_path:
+        send_telegram_document(
+            chart_path,
+            caption="📈 Live trade — setup chart"
+        )
 
 # ============================================================
 # POSITION MANAGEMENT
@@ -1221,6 +1277,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
