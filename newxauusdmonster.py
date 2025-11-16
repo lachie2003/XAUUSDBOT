@@ -828,7 +828,7 @@ if DRY_RUN:
                 chart_path,
                 caption="📈 DRY RUN – trade setup chart"
             )
-        return
+    return
 
     # =======================
     # LIVE ORDER EXECUTION
@@ -851,8 +851,8 @@ if DRY_RUN:
     # =======================
     # LOGGING FOR LIVE TRADES
     # =======================
-    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-        log_trade({
+if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            log_trade({
             "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             "symbol": SYMBOL,
             "direction": setup.direction,
@@ -862,18 +862,18 @@ if DRY_RUN:
             "risk_pct": RISK_PER_TRADE * 100,
             "result": "open",
         })
-    else:
+else:
         log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
         print("[LIVE] ORDER FAILED", res.retcode)
 
-    log_event(
+        log_event(
         "trades.log",
         f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
         f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f} | "
         f"retcode={res.retcode}"
     )
 
-    update_state(last_trade={
+        update_state(last_trade={
         "direction": setup.direction,
         "entry": round(price, 2),
         "sl": round(setup.sl, 2),
@@ -882,7 +882,7 @@ if DRY_RUN:
         "retcode": res.retcode,
     })
 
-    send_telegram(
+        send_telegram(
         f"🚀 <b>TRADE PLACED</b>\n"
         f"{setup.direction.upper()} {lots} lots\n"
         f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
@@ -1325,6 +1325,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
