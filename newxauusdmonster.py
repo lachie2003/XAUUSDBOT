@@ -804,12 +804,12 @@ def send_order(setup: Setup):
         return
 
     # create chart (before order so we at least see the setup)
-    chart_path = create_trade_chart(setup)
-
+    chart_path = create_trade_chart(setup) 
+    
     # =======================
     # DRY RUN (no live trade)
     # =======================
-if DRY_RUN:
+    if DRY_RUN:
         print("[DRY] ORDER:", setup.direction, lots)
         log_event(
             "trades.log",
@@ -828,7 +828,7 @@ if DRY_RUN:
                 chart_path,
                 caption="📈 DRY RUN – trade setup chart"
             )
-    return
+        return
 
     # =======================
     # LIVE ORDER EXECUTION
@@ -1325,6 +1325,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
