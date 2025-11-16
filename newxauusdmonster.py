@@ -100,7 +100,7 @@ def log_setup(row: dict) -> None:
 
 def log_error(message: str) -> None:
     """
-    Saves errors into logs/errors/...
+    Saves errors into logs/errors/
     """
     try:
         path = _get_daily_log_path("errors", "errors")
@@ -117,7 +117,7 @@ def log_error(message: str) -> None:
 
 def log_debug(message: str) -> None:
     """
-    Light-weight debug logging to logs/debug/...
+    Light-weight debug logging to logs/debug/
     """
     try:
         path = _get_daily_log_path("debug", "debug")
@@ -169,7 +169,7 @@ from auto_update import check_for_update, apply_update
 # ------------------------------------------------------------
 # Auto Update Check
 # ------------------------------------------------------------
-print("[UPDATE] Checking for new version...")
+print("[UPDATE] Checking for new version")
 
 need_update, msg = check_for_update()
 print("[UPDATE]", msg)
@@ -177,13 +177,13 @@ print("[UPDATE]", msg)
 if need_update:
     ok, msg2 = apply_update()
     print("[UPDATE]", msg2)
-    print("[UPDATE] Update applied. Exiting so launcher can restart the bot...")
+    print("[UPDATE] Update applied. Exiting so launcher can restart the bot")
     print("[UPDATE] If you started this manually, just run it again.")
     sys.exit(0)
 # ------------------------------------------------------------
 # License Check
 # ------------------------------------------------------------
-print("[LICENSE] Verifying license...")
+print("[LICENSE] Verifying license")
 
 licensed, lic_msg = verify_license(LICENSE_KEY)
 print("[LICENSE]", lic_msg)
@@ -1277,6 +1277,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
