@@ -161,25 +161,7 @@ BOT_VERSION = "1.0.1"
 # Later, when you sell this, each user will get their own key.
 LICENSE_KEY = "TJR-GODMODE-001"
 
-# ------------------------------------------------------------
-# Auto Update Import
-# ------------------------------------------------------------
-from auto_update import check_for_update, apply_update
 
-# ------------------------------------------------------------
-# Auto Update Check
-# ------------------------------------------------------------
-print("[UPDATE] Checking for new version...")
-
-need_update, msg = check_for_update()
-print("[UPDATE]", msg)
-
-if need_update:
-    ok, msg2 = apply_update()
-    print("[UPDATE]", msg2)
-    print("[UPDATE] Update applied. Exiting so launcher can restart the bot...")
-    print("[UPDATE] If you started this manually, just run it again.")
-    sys.exit(0)
 # ------------------------------------------------------------
 # License Check
 # ------------------------------------------------------------
@@ -803,11 +785,11 @@ def send_order(setup: Setup):
         log_error("calc_lots returned 0")
         return
 
-    # create chart (before order so we at least see the setup)
-    chart_path = create_trade_chart(setup) 
-    
+    # create chart file BEFORE trade
+    chart_path = create_trade_chart(setup)
+
     # =======================
-    # DRY RUN (no live trade)
+    # DRY RUN MODE
     # =======================
     if DRY_RUN:
         print("[DRY] ORDER:", setup.direction, lots)
@@ -835,24 +817,25 @@ def send_order(setup: Setup):
     # =======================
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": SYMBOL,
-        "volume": lots,
-        "type": mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
-        "price": price,
-        "sl": setup.sl,
-        "tp": setup.tp,
-        "magic": MAGIC,
-        "comment": "TJR",
-        "deviation": 50,
+        "symbol":     SYMBOL,
+        "volume":     lots,
+        "type":       mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
+        "price":      price,
+        "sl":         setup.sl,
+        "tp":         setup.tp,
+        "magic":      MAGIC,
+        "comment":    "TJR",
+        "deviation":  50,
         "type_filling": mt5.ORDER_FILLING_IOC
     }
+
     res = mt5.order_send(req)
 
     # =======================
-    # LOGGING FOR LIVE TRADES
+    # LOGGING
     # =======================
-if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-            log_trade({
+    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+        log_trade({
             "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             "symbol": SYMBOL,
             "direction": setup.direction,
@@ -862,18 +845,11 @@ if res and res.retcode == mt5.TRADE_RETCODE_DONE:
             "risk_pct": RISK_PER_TRADE * 100,
             "result": "open",
         })
-else:
+    else:
         log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
         print("[LIVE] ORDER FAILED", res.retcode)
 
-        log_event(
-        "trades.log",
-        f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
-        f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f} | "
-        f"retcode={res.retcode}"
-    )
-
-        update_state(last_trade={
+    update_state(last_trade={
         "direction": setup.direction,
         "entry": round(price, 2),
         "sl": round(setup.sl, 2),
@@ -882,7 +858,7 @@ else:
         "retcode": res.retcode,
     })
 
-        send_telegram(
+    send_telegram(
         f"🚀 <b>TRADE PLACED</b>\n"
         f"{setup.direction.upper()} {lots} lots\n"
         f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
@@ -893,6 +869,8 @@ else:
             chart_path,
             caption="📈 Live trade — setup chart"
         )
+
+
 
 
 # ============================================================
@@ -1325,8 +1303,6 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
-
-
 
 
 
