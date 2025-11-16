@@ -3,8 +3,11 @@ import time
 import datetime as dt
 from dataclasses import dataclass
 from typing import Dict
-import sys
 import threading
+import sys
+import csv
+import traceback
+import json
 
 import MetaTrader5 as mt5
 import pandas as pd
@@ -14,16 +17,15 @@ import requests
 from flask import Flask, render_template_string
 
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.colors import HexColor, black, white
+from reportlab.lib.colors import HexColor, black
 from reportlab.pdfgen import canvas
-import json
-from license_manager import verify_license
 
-# =========================
+from license_manager import verify_license
+from auto_update import check_for_update, apply_update
+
+# ============================================================
 # SIMPLE LOGGING HELPERS
-# =========================
-import csv
-import traceback
+# ============================================================
 
 LOG_BASE_DIR = "logs"
 
@@ -59,7 +61,7 @@ def log_trade(row: dict) -> None:
         "sl": 1919.00,
         "tp": 1935.00,
         "risk_pct": 1.0,
-        "result": "open"  # or "win"/"loss"/"breakeven"
+        "result": "open"
     }
     """
     try:
@@ -100,7 +102,7 @@ def log_setup(row: dict) -> None:
 
 def log_error(message: str) -> None:
     """
-    Saves errors into logs/errors/
+    Saves errors into logs/errors/...
     """
     try:
         path = _get_daily_log_path("errors", "errors")
@@ -117,7 +119,7 @@ def log_error(message: str) -> None:
 
 def log_debug(message: str) -> None:
     """
-    Light-weight debug logging to logs/debug/
+    Light-weight debug logging to logs/debug/...
     """
     try:
         path = _get_daily_log_path("debug", "debug")
@@ -125,84 +127,57 @@ def log_debug(message: str) -> None:
         with open(path, "a", newline="") as f:
             writer = csv.writer(f)
             if write_header:
-                writer.writerow(["time", "message"])
+                writer.writeheader(["time", "message"])
             now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             writer.writerow([now, message])
     except Exception:
         pass
-# =========================
+
+
+# ============================================================
 # GLOBAL EXCEPTION HANDLER
-# =========================
-import sys
+# ============================================================
 
 def _format_exception(exc_type, exc_value, exc_tb) -> str:
     return "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
 
+
 def global_exception_handler(exc_type, exc_value, exc_tb):
-    # Log full traceback to errors log
     msg = _format_exception(exc_type, exc_value, exc_tb)
     log_error(msg)
-    # Also print to console so you still see it
     print("UNHANDLED EXCEPTION:")
     print(msg)
 
-# Any unhandled error in this script will now go through here
+
 sys.excepthook = global_exception_handler
 
 # ------------------------------------------------------------
-# Bot Version
+# Bot Version / License / Auto-Update
 # ------------------------------------------------------------
-BOT_VERSION = "1.0.1"
 
-# ------------------------------------------------------------
-# Licensing
-# ------------------------------------------------------------
-# Put your license key here.
-# Later, when you sell this, each user will get their own key.
+BOT_VERSION = "1.0.1"
 LICENSE_KEY = "TJR-GODMODE-001"
 
-# ------------------------------------------------------------
-# Auto Update Import
-# ------------------------------------------------------------
-from auto_update import check_for_update, apply_update
-
-# ------------------------------------------------------------
-# Auto Update Check
-# ------------------------------------------------------------
-print("[UPDATE] Checking for new version")
-
+print("[UPDATE] Checking for new version...")
 need_update, msg = check_for_update()
 print("[UPDATE]", msg)
-
 if need_update:
     ok, msg2 = apply_update()
     print("[UPDATE]", msg2)
-    print("[UPDATE] Update applied. Exiting so launcher can restart the bot")
+    print("[UPDATE] Update applied. Exiting so launcher can restart the bot...")
     print("[UPDATE] If you started this manually, just run it again.")
     sys.exit(0)
-# ------------------------------------------------------------
-# License Check
-# ------------------------------------------------------------
-print("[LICENSE] Verifying license")
 
+print("[LICENSE] Verifying license...")
 licensed, lic_msg = verify_license(LICENSE_KEY)
 print("[LICENSE]", lic_msg)
-
-# If you have BOT_STATE already defined later, we'll update it there.
-# For now, just block trading if not licensed.
-if not licensed:
-    # You can choose:
-    #  - allow DRY_RUN only
-    #  - or exit completely
-    print("[LICENSE] NOT LICENSED - bot will run in DRY_RUN mode only.")
-    # We'll assume you have a DRY_RUN variable later in the file.
-
 
 # ============================================================
 # LOAD CONFIG & SECRETS
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def load_json(path, default=None):
     try:
@@ -215,22 +190,26 @@ def load_json(path, default=None):
         print(f"[CFG] Error loading {path}:", e)
         return default if default is not None else {}
 
+
 CONFIG = load_json(os.path.join(BASE_DIR, "config.json"), {})
 SECRETS = load_json(os.path.join(BASE_DIR, "secrets.json"), {})
-
 
 # ============================================================
 # TELEGRAM ALERT SYSTEM
 # ============================================================
 
-import requests
+TELEGRAM_TOKEN = SECRETS.get("telegram", {}).get("token", "")
+CHAT_ID = SECRETS.get("telegram", {}).get("chat_id", "")
+
 
 def send_telegram(message: str):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": message,
-        "parse_mode": "HTML"
+        "parse_mode": "HTML",
     }
     try:
         r = requests.post(url, data=payload, timeout=4)
@@ -265,13 +244,6 @@ def send_telegram_document(filepath: str, caption: str = ""):
 
 
 # ============================================================
-# TELEGRAM FROM SECRETS
-# ============================================================
-
-TELEGRAM_TOKEN = SECRETS.get("telegram", {}).get("token", "")
-CHAT_ID = SECRETS.get("telegram", {}).get("chat_id", "")
-
-# ============================================================
 # USER SETTINGS FROM CONFIG / SECRETS
 # ============================================================
 
@@ -284,15 +256,14 @@ MT5_PATH = SECRETS.get("mt5", {}).get(
 )
 
 trading_cfg = CONFIG.get("trading", {})
-# Trading mode from config
 DRY_RUN = bool(trading_cfg.get("dry_run", False))
 
-# Licensing override: if not licensed, force DRY_RUN=True
 if not licensed:
     DRY_RUN = True
     print("[LICENSE] Forcing DRY_RUN=True because bot is NOT licensed.")
 else:
     print(f"[LICENSE] DRY_RUN remains {DRY_RUN} (licensed).")
+
 RISK_PER_TRADE = float(trading_cfg.get("risk_per_trade", 0.01))
 MIN_SCORE = float(trading_cfg.get("min_score", 7))
 REFRESH_SECONDS = int(trading_cfg.get("refresh_seconds", 60))
@@ -304,7 +275,7 @@ SYMBOL = symbol_cfg.get("name", "XAUUSD")
 SPREAD_CAP = float(symbol_cfg.get("spread_cap", 60.0))
 
 # ============================================================
-# SESSIONS & NEWS FROM CONFIG
+# SESSIONS & NEWS
 # ============================================================
 
 NY = pytz.timezone("America/New_York")
@@ -327,34 +298,38 @@ news_cfg = CONFIG.get("news", {})
 NEWS_BLOCK_MINUTES = int(news_cfg.get("block_minutes", 15))
 RED_NEWS = news_cfg.get("events", [])
 
-
 # ============================================================
 # DEBUG
 # ============================================================
+
 DEBUG = True
+
 
 def dbg(*a):
     if not DEBUG:
         return
     msg = " ".join(str(x) for x in a)
     print("[DBG]", msg)
-    # also write to debug log file
     try:
         log_debug(msg)
     except Exception:
-        # never let logging crash the bot
         pass
 
 
 # ============================================================
-# LOGGING (HUMAN READABLE)
+# HUMAN READABLE LOGGING DIRS
 # ============================================================
 
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
+REPORT_DIR = "reports"
+os.makedirs(REPORT_DIR, exist_ok=True)
+
+CHART_DIR = "charts"
+os.makedirs(CHART_DIR, exist_ok=True)
+
 def log_event(filename: str, text: str):
-    """Append a timestamped line to logs/<filename>."""
     ts = dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     path = os.path.join(LOG_DIR, filename)
     try:
@@ -363,17 +338,8 @@ def log_event(filename: str, text: str):
     except Exception as e:
         print("[LOG] Failed:", e)
 
-# Directory for weekly PDF reports
-REPORT_DIR = "reports"
-os.makedirs(REPORT_DIR, exist_ok=True)
-
-# Directory for trade charts (sent to Telegram)
-CHART_DIR = "charts"
-os.makedirs(CHART_DIR, exist_ok=True)
-
-
 # ============================================================
-# STRUCTURE
+# STRUCTURES & DASHBOARD STATE
 # ============================================================
 
 @dataclass
@@ -385,9 +351,6 @@ class Setup:
     score: float
     rationale: Dict[str, float]
 
-# ============================================================
-# DASHBOARD STATE
-# ============================================================
 
 BOT_STATE = {
     "connected": False,
@@ -396,12 +359,12 @@ BOT_STATE = {
     "in_killzone": False,
     "in_news_block": False,
     "open_positions": 0,
-    "last_setup": None,   # dict
-    "last_trade": None,   # dict
+    "last_setup": None,
+    "last_trade": None,
     "equity": 0.0,
     "version": BOT_VERSION,
-    "licensed": False,
-    "license_msg": "",
+    "licensed": bool(licensed),
+    "license_msg": lic_msg,
 }
 
 
@@ -410,7 +373,6 @@ def update_state(**kwargs):
     BOT_STATE["last_update"] = now
     for k, v in kwargs.items():
         BOT_STATE[k] = v
-
 
 # ============================================================
 # MT5 CONNECTION
@@ -455,6 +417,7 @@ def in_killzone(now_utc):
     ny_time = now_utc.astimezone(NY).time()
     return (NY_AM[0] <= ny_time <= NY_AM[1]) or (NY_PM[0] <= ny_time <= NY_PM[1])
 
+
 def in_news_block(now_utc):
     for name, timestr in RED_NEWS:
         news_time = dt.datetime.strptime(timestr, "%Y-%m-%d %H:%M").replace(tzinfo=UTC)
@@ -486,12 +449,13 @@ def swings(df, left=2, right=2):
     n = len(df)
     sh = np.zeros(n, dtype=bool)
     sl = np.zeros(n, dtype=bool)
-    for i in range(left, n-right):
+    for i in range(left, n - right):
         if all(h[i] > h[i-k] for k in range(1, left+1)) and all(h[i] > h[i+k] for k in range(1, right+1)):
             sh[i] = True
         if all(l[i] < l[i-k] for k in range(1, left+1)) and all(l[i] < l[i+k] for k in range(1, right+1)):
             sl[i] = True
     return sh, sl
+
 
 def bias_h4_h1():
     h4 = fetch(SYMBOL, mt5.TIMEFRAME_H4, 800)
@@ -525,6 +489,7 @@ def bias_h4_h1():
         return "bear"
     return "neutral"
 
+
 def detect_sweep(df):
     if len(df) < 40:
         return False, "", 0.0
@@ -540,6 +505,7 @@ def detect_sweep(df):
     if last.low < lo and last.close > last.low:
         return True, "buy", lo
     return False, "", 0.0
+
 
 def detect_displacement(df):
     if len(df) < 20:
@@ -561,6 +527,7 @@ def detect_displacement(df):
 
     return disp, bos, ifvg
 
+
 def refined_poi(df, direction):
     for i in range(len(df) - 3, 3, -1):
         c = df.iloc[i]
@@ -574,6 +541,7 @@ def refined_poi(df, direction):
             return c.low, c.high
     return 0.0, 0.0
 
+
 def confirm_at_poi(df, direction, low, high):
     last = df.iloc[-2]
     touched = (
@@ -585,6 +553,7 @@ def confirm_at_poi(df, direction, low, high):
         return False
     mid = (low + high) / 2
     return last.close > mid if direction == "buy" else last.close < mid
+
 
 def room_to_target(direction, entry, sl):
     h1 = fetch(SYMBOL, mt5.TIMEFRAME_H1, 600)
@@ -601,7 +570,7 @@ def room_to_target(direction, entry, sl):
     rr = abs(dist) / abs((entry - sl) / point)
     return rr >= 1.2, rr
 
-# # ============================================================
+# ============================================================
 # SETUP FINDER
 # ============================================================
 
@@ -613,7 +582,6 @@ def find_setup():
         return None
 
     spread = (tick.ask - tick.bid) / info.point
-
     if spread > SPREAD_CAP:
         dbg("Spread too high:", spread)
         send_telegram("⚠️ <b>Spread too high</b> — skipping XAUUSD")
@@ -673,16 +641,14 @@ def find_setup():
         dbg("Score low")
         return None
 
-    # Update dashboard state with setup info
     update_state(last_setup={
         "direction": direction,
         "entry": round(entry, 2),
         "sl": round(sl, 2),
         "tp": round(tp, 2),
-        "score": round(score, 2)
+        "score": round(score, 2),
     })
 
-    # LOG: setup (CSV)
     log_setup({
         "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "symbol": SYMBOL,
@@ -694,7 +660,6 @@ def find_setup():
         ),
     })
 
-    # TELEGRAM: SETUP DETECTED
     send_telegram(
         f"📊 <b>Setup Detected</b>\n"
         f"Direction: {direction.upper()}\n"
@@ -703,6 +668,53 @@ def find_setup():
     )
 
     return Setup(direction, entry, sl, tp, score, rationale)
+
+# ============================================================
+# TRADE CHART
+# ============================================================
+
+def create_trade_chart(setup: Setup) -> str:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        log_event("errors.log", f"matplotlib not available for chart: {e}")
+        return ""
+
+    df = fetch(SYMBOL, mt5.TIMEFRAME_M5, 200)
+    if df.empty:
+        log_event("errors.log", "No M5 data for trade chart")
+        return ""
+
+    df = df.tail(120)
+
+    try:
+        plt.figure(figsize=(10, 5))
+        plt.plot(df["time"], df["close"], linewidth=1.2)
+
+        plt.axhline(setup.entry, linestyle="--", linewidth=0.9)
+        plt.axhline(setup.sl, linestyle="--", linewidth=0.9)
+        plt.axhline(setup.tp, linestyle="--", linewidth=0.9)
+
+        plt.title(
+            f"{SYMBOL} {setup.direction.upper()} "
+            f"Entry {setup.entry:.2f} SL {setup.sl:.2f} TP {setup.tp:.2f} "
+            f"Score {setup.score:.1f}"
+        )
+        plt.xlabel("Time (M5)")
+        plt.ylabel("Price")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        fname = f"{SYMBOL}_{dt.datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.png"
+        fpath = os.path.join(CHART_DIR, fname)
+        plt.savefig(fpath, dpi=120)
+        plt.close()
+
+        log_event("events.log", f"Trade chart saved: {fpath}")
+        return fpath
+    except Exception as e:
+        log_event("errors.log", f"Failed to create trade chart: {e}")
+        return ""
 
 # ============================================================
 # RISK & ORDER EXECUTION
@@ -734,12 +746,14 @@ def calc_lots(entry, sl):
     step = info.volume_step
     return round(raw / step) * step
 
+
 def open_positions():
     pos = mt5.positions_get(symbol=SYMBOL)
     if pos is None:
         return 0
     return sum(1 for p in pos if p.magic == MAGIC)
-   
+
+
 def send_order(setup: Setup):
     info = mt5.symbol_info(SYMBOL)
     tick = mt5.symbol_info_tick(SYMBOL)
@@ -755,12 +769,8 @@ def send_order(setup: Setup):
         log_error("calc_lots returned 0")
         return
 
-    # create chart before order so we at least see the setup
     chart_path = create_trade_chart(setup)
 
-    # =======================
-    # DRY RUN (no live trade)
-    # =======================
     if DRY_RUN:
         print("[DRY] ORDER:", setup.direction, lots)
         log_event(
@@ -782,9 +792,6 @@ def send_order(setup: Setup):
             )
         return
 
-    # =======================
-    # LIVE ORDER EXECUTION
-    # =======================
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": SYMBOL,
@@ -796,13 +803,10 @@ def send_order(setup: Setup):
         "magic": MAGIC,
         "comment": "TJR",
         "deviation": 50,
-        "type_filling": mt5.ORDER_FILLING_IOC
+        "type_filling": mt5.ORDER_FILLING_IOC,
     }
     res = mt5.order_send(req)
 
-    # =======================
-    # LOGGING FOR LIVE TRADES
-    # =======================
     if res and res.retcode == mt5.TRADE_RETCODE_DONE:
         log_trade({
             "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
@@ -818,7 +822,6 @@ def send_order(setup: Setup):
         log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
         print("[LIVE] ORDER FAILED:", res.retcode)
 
-    # legacy event log
     log_event(
         "trades.log",
         f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
@@ -881,7 +884,6 @@ def manage_positions():
 
         r_mult = (price - entry) / r_unit if p.type == 0 else (entry - price) / r_unit
 
-        # SL → BE
         if r_mult >= 1.0 and abs(sl - entry) > 0.1 * point:
             mt5.order_send({
                 "action": mt5.TRADE_ACTION_SLTP,
@@ -896,7 +898,6 @@ def manage_positions():
             )
             send_telegram("🔒 SL moved to Break Even")
 
-        # FULL TP at 2R
         if r_mult >= 2.0:
             mt5.order_send({
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -923,15 +924,11 @@ def manage_positions():
 # WEEKLY REPORT GENERATION
 # ============================================================
 
-LAST_REPORT_WEEK = None  # track to avoid duplicates per run
+LAST_REPORT_WEEK = None
 
 def get_week_bounds(now_utc: dt.datetime):
-    """
-    Returns (monday_start, friday_end, label, week_number)
-    Week is Monday 00:00 -> Friday 23:59:59 (Mon–Fri trading).
-    """
     today = now_utc.date()
-    monday = today - dt.timedelta(days=today.weekday())  # Monday = 0
+    monday = today - dt.timedelta(days=today.weekday())
     monday_start = dt.datetime(monday.year, monday.month, monday.day)
     friday = monday + dt.timedelta(days=4)
     friday_end = dt.datetime(friday.year, friday.month, friday.day, 23, 59, 59)
@@ -940,17 +937,16 @@ def get_week_bounds(now_utc: dt.datetime):
     week_number = now_utc.isocalendar()[1]
     return monday_start, friday_end, label, week_number
 
+
 def generate_weekly_report(now_utc: dt.datetime):
     monday_start, friday_end, label, week_no = get_week_bounds(now_utc)
     pdf_name = f"week_{week_no}.pdf"
     pdf_path = os.path.join(REPORT_DIR, pdf_name)
 
-    # If already exists, don't regenerate
     if os.path.exists(pdf_path):
         log_event("events.log", f"Weekly report already exists: {pdf_name}")
         return
 
-    # fetch deal history for this week
     try:
         deals = mt5.history_deals_get(monday_start, friday_end)
     except Exception as e:
@@ -961,7 +957,6 @@ def generate_weekly_report(now_utc: dt.datetime):
         log_event("events.log", f"No deals found for weekly report ({label})")
         return
 
-    # filter our symbol + magic
     filtered = []
     for d in deals:
         try:
@@ -979,7 +974,6 @@ def generate_weekly_report(now_utc: dt.datetime):
         log_event("events.log", f"No closed trades for weekly report ({label})")
         return
 
-    # compute stats
     filtered = sorted(filtered, key=lambda x: x.time)
     total_trades = len(filtered)
     profits = [float(d.profit) for d in filtered]
@@ -990,14 +984,12 @@ def generate_weekly_report(now_utc: dt.datetime):
     best_trade = max(profits)
     worst_trade = min(profits)
 
-    # equity curve (starting from 0 for the week)
     eq = []
     running = 0.0
     for p in profits:
         running += p
         eq.append(running)
 
-    # max drawdown
     peak = eq[0]
     max_dd = 0.0
     for v in eq:
@@ -1009,20 +1001,15 @@ def generate_weekly_report(now_utc: dt.datetime):
 
     avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
 
-    # ======================================================
-    # CREATE DARK THEME PDF
-    # ======================================================
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
 
-    # background
     c.setFillColor(black)
     c.rect(0, 0, width, height, fill=1, stroke=0)
 
     gold = HexColor("#FFD700")
     grey = HexColor("#CCCCCC")
 
-    # title
     c.setFont("Helvetica-Bold", 20)
     c.setFillColor(gold)
     c.drawString(40, height - 50, "TJR XAUUSD — Weekly Report")
@@ -1031,7 +1018,6 @@ def generate_weekly_report(now_utc: dt.datetime):
     c.drawString(40, height - 70, f"Week: {label}")
     c.drawString(40, height - 85, f"Generated: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}")
 
-    # stats block
     y = height - 120
     line_h = 16
     c.setFont("Helvetica", 12)
@@ -1050,7 +1036,6 @@ def generate_weekly_report(now_utc: dt.datetime):
         c.drawString(40, y, line)
         y -= line_h
 
-    # equity curve box
     box_x = 40
     box_y = 140
     box_w = width - 80
@@ -1062,7 +1047,6 @@ def generate_weekly_report(now_utc: dt.datetime):
     c.setFillColor(grey)
     c.drawString(box_x, box_y + box_h + 15, "Equity Curve (PnL over week, USD)")
 
-    # draw equity curve line
     if len(eq) >= 2:
         min_eq = min(eq + [0.0])
         max_eq = max(eq + [0.0])
@@ -1088,7 +1072,6 @@ def generate_weekly_report(now_utc: dt.datetime):
             c.line(prev_x, prev_y, x, y2)
             prev_x, prev_y = x, y2
 
-    # footer
     c.setFont("Helvetica-Oblique", 8)
     c.setFillColor(grey)
     c.drawRightString(width - 20, 20, "TJR Monster Bot — XAUUSD NY Session")
@@ -1098,7 +1081,6 @@ def generate_weekly_report(now_utc: dt.datetime):
 
     log_event("events.log", f"Weekly report generated: {pdf_name}")
 
-    # Telegram summary
     summary = (
         f"📊 <b>WEEKLY REPORT</b> ({label})\n\n"
         f"Total Trades: {total_trades}\n"
@@ -1111,8 +1093,6 @@ def generate_weekly_report(now_utc: dt.datetime):
         f"Avg PnL/Trade: ${avg_pnl:.2f} USD"
     )
     send_telegram(summary)
-
-    # Telegram PDF
     send_telegram_document(pdf_path, caption=f"📎 Weekly report PDF ({label})")
 
 # ============================================================
@@ -1206,14 +1186,13 @@ DASHBOARD_HTML = """
 def dashboard():
     return render_template_string(DASHBOARD_HTML, state=BOT_STATE)
 
+
 def run_dashboard():
     app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)
 
 # ============================================================
 # MAIN LOOP
 # ============================================================
-
-LAST_REPORT_WEEK = None  # track to avoid duplicates per run
 
 def main():
     global LAST_REPORT_WEEK
@@ -1226,7 +1205,6 @@ def main():
     mt5.symbol_select(SYMBOL, True)
 
     while True:
-        # naive UTC for week calculations + MT5 history
         now = dt.datetime.utcnow().replace(tzinfo=None)
         now_utc = dt.datetime.now(UTC)
 
@@ -1235,11 +1213,10 @@ def main():
 
         update_state(in_killzone=in_kill, in_news_block=in_news)
 
-        # Weekly report trigger: Friday after 21:00 UTC
-        weekday = now.weekday()  # Monday=0
+        weekday = now.weekday()
         hour = now.hour
-        if weekday == 4 and hour >= 21:  # Friday >= 21:00 UTC
-            _, _, _, week_no = get_week_bounds(now)
+        if weekday == 4 and hour >= 21:
+            _, _, _, week_no = get_week_bounds(now_utc)
             if LAST_REPORT_WEEK != week_no:
                 try:
                     generate_weekly_report(now_utc)
@@ -1274,23 +1251,7 @@ def main():
 
         time.sleep(REFRESH_SECONDS)
 
+
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
