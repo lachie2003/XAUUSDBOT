@@ -673,7 +673,7 @@ def find_setup():
         dbg("Score low")
         return None
 
-    # Update dashboard state with setup info
+        # Update dashboard state with setup info
     update_state(last_setup={
         "direction": direction,
         "entry": round(entry, 2),
@@ -682,14 +682,21 @@ def find_setup():
         "score": round(score, 2)
     })
 
-    # LOG: setup
-    log_event(
-        "setups.log",
-        f"Setup detected | {direction.upper()} | Score: {score:.1f} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}"
-    )
+    # LOG: setup (CSV)
+    log_setup({
+        "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "symbol": SYMBOL,
+        "score": round(score, 2),
+        "direction": direction,
+        "reason": (
+            f"bias={bias}, sweep_side={swept_side}, "
+            f"displacement={disp}, bos={bos}, ifvg={ifvg}, rr_ok={rr_ok}"
+        ),
+    })
 
     # TELEGRAM: SETUP DETECTED
     send_telegram(
+
         f"📊 <b>Setup Detected</b>\n"
         f"Direction: {direction.upper()}\n"
         f"Entry: {entry}\n"
@@ -1294,6 +1301,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
