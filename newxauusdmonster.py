@@ -809,18 +809,26 @@ def send_order(setup: Setup):
     # =======================
     # DRY RUN (no live trade)
     # =======================
-    send_telegram(
-        f"🧪 <b>DRY RUN TRADE</b>\n"
-        f"{setup.direction.upper()} {lots} lots\n"
-        f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
-    )
-
-    if chart_path:
-        send_telegram_document(
-            chart_path,
-            caption="📈 DRY RUN – trade setup chart"
+    if DRY_RUN:
+        print("[DRY] ORDER:", setup.direction, lots)
+        log_event(
+            "trades.log",
+            f"DRY RUN | {setup.direction.upper()} | Lots: {lots:.2f} | "
+            f"Entry: {price:.2f} | SL: {setup.sl:.2f} | TP: {setup.tp:.2f}"
         )
-    return
+
+        send_telegram(
+            f"🧪 <b>DRY RUN TRADE</b>\n"
+            f"{setup.direction.upper()} {lots} lots\n"
+            f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
+        )
+
+        if chart_path:
+            send_telegram_document(
+                chart_path,
+                caption="📈 DRY RUN – trade setup chart"
+            )
+        return
 
     # =======================
     # LIVE ORDER EXECUTION
@@ -885,7 +893,6 @@ def send_order(setup: Setup):
             chart_path,
             caption="📈 Live trade — setup chart"
         )
-
 
 
 # ============================================================
@@ -1318,6 +1325,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
