@@ -809,7 +809,7 @@ def send_order(setup: Setup):
     # =======================
     # DRY RUN (no live trade)
     # =======================
-        send_telegram(
+    send_telegram(
         f"🧪 <b>DRY RUN TRADE</b>\n"
         f"{setup.direction.upper()} {lots} lots\n"
         f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
@@ -1318,6 +1318,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
