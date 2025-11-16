@@ -803,10 +803,10 @@ def send_order(setup: Setup):
         log_error("calc_lots returned 0")
         return
 
-    # create chart (before order so we at least see the setup)
+    # create chart before order so we at least see the setup
     chart_path = create_trade_chart(setup)
 
-       # =======================
+    # =======================
     # DRY RUN (no live trade)
     # =======================
     if DRY_RUN:
@@ -834,7 +834,7 @@ def send_order(setup: Setup):
     # LIVE ORDER EXECUTION
     # =======================
     req = {
-        "action": mt5.TRADE_ACTION_DEAL",
+        "action": mt5.TRADE_ACTION_DEAL,
         "symbol": SYMBOL,
         "volume": lots,
         "type": mt5.ORDER_TYPE_BUY if setup.direction == "buy" else mt5.ORDER_TYPE_SELL,
@@ -844,8 +844,9 @@ def send_order(setup: Setup):
         "magic": MAGIC,
         "comment": "TJR",
         "deviation": 50,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": mt5.ORDER_FILLING_IOC
     }
+
     res = mt5.order_send(req)
 
     # =======================
@@ -859,14 +860,14 @@ def send_order(setup: Setup):
             "entry": price,
             "sl": setup.sl,
             "tp": setup.tp,
-            "risk_pct": RISK_PER_TRADE * 100,  # or use cfg['trading']['risk_per_trade'] * 100
+            "risk_pct": RISK_PER_TRADE * 100,
             "result": "open",
         })
     else:
         log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
-        print("[LIVE] ORDER FAILED", res.retcode)
+        print("[LIVE] ORDER FAILED:", res.retcode)
 
-    # keep legacy event log for history
+    # legacy event log
     log_event(
         "trades.log",
         f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
@@ -1327,6 +1328,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
