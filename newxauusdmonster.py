@@ -331,11 +331,20 @@ RED_NEWS = news_cfg.get("events", [])
 # ============================================================
 # DEBUG
 # ============================================================
-
 DEBUG = True
-def dbg(*args):
-    if DEBUG:
-        print("[DBG]", *args)
+
+def dbg(*a):
+    if not DEBUG:
+        return
+    msg = " ".join(str(x) for x in a)
+    print("[DBG]", msg)
+    # also write to debug log file
+    try:
+        log_debug(msg)
+    except Exception:
+        # never let logging crash the bot
+        pass
+
 
 # ============================================================
 # LOGGING (HUMAN READABLE)
@@ -1285,6 +1294,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
