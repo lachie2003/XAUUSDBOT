@@ -823,11 +823,15 @@ def send_order(setup: Setup):
             f"Entry: {price}\nSL: {setup.sl}\nTP: {setup.tp}"
         )
 
-        if chart_path:
-            send_telegram_document(
-                chart_path,
-                caption="📈 DRY RUN — trade setup chart"
-            )
+        def send_order(setup: Setup):
+
+    ...
+
+    if chart_path:
+        send_telegram_document(
+            chart_path,
+            caption="📈 DRY RUN – trade setup chart"
+        )
         return
 
     # =======================
@@ -852,7 +856,6 @@ def send_order(setup: Setup):
     # LOGGING FOR LIVE TRADES
     # =======================
     if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-        # trade opened successfully
         log_trade({
             "time": dt.datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             "symbol": SYMBOL,
@@ -864,11 +867,9 @@ def send_order(setup: Setup):
             "result": "open",
         })
     else:
-        # trade failed
         log_error(f"Order failed: retcode={res.retcode} message={res.comment}")
         print("[LIVE] ORDER FAILED", res.retcode)
 
-    # still log attempt for dashboard + history
     log_event(
         "trades.log",
         f"TRADE ATTEMPT | {setup.direction.upper()} | Lots: {lots:.2f} | "
@@ -896,6 +897,7 @@ def send_order(setup: Setup):
             chart_path,
             caption="📈 Live trade — setup chart"
         )
+
 
 
 # ============================================================
@@ -1328,6 +1330,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
