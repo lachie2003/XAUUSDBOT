@@ -809,7 +809,7 @@ def send_order(setup: Setup):
     # =======================
     # DRY RUN (no live trade)
     # =======================
-    if DRY_RUN:
+if DRY_RUN:
         print("[DRY] ORDER:", setup.direction, lots)
         log_event(
             "trades.log",
@@ -1325,6 +1325,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
