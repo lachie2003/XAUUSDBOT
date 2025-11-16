@@ -130,6 +130,24 @@ def log_debug(message: str) -> None:
             writer.writerow([now, message])
     except Exception:
         pass
+# =========================
+# GLOBAL EXCEPTION HANDLER
+# =========================
+import sys
+
+def _format_exception(exc_type, exc_value, exc_tb) -> str:
+    return "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+
+def global_exception_handler(exc_type, exc_value, exc_tb):
+    # Log full traceback to errors log
+    msg = _format_exception(exc_type, exc_value, exc_tb)
+    log_error(msg)
+    # Also print to console so you still see it
+    print("UNHANDLED EXCEPTION:")
+    print(msg)
+
+# Any unhandled error in this script will now go through here
+sys.excepthook = global_exception_handler
 
 # ------------------------------------------------------------
 # Bot Version
@@ -1267,6 +1285,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
