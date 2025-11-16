@@ -19,6 +19,117 @@ from reportlab.pdfgen import canvas
 import json
 from license_manager import verify_license
 
+# =========================
+# SIMPLE LOGGING HELPERS
+# =========================
+import csv
+import traceback
+
+LOG_BASE_DIR = "logs"
+
+
+def _ensure_dir(path: str) -> None:
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        # last resort: ignore logging dir errors
+        pass
+
+
+def _get_daily_log_path(subfolder: str, prefix: str) -> str:
+    """
+    Build a daily CSV file path like:
+    logs/trades/2025-11-16_trades.csv
+    """
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    folder = os.path.join(LOG_BASE_DIR, subfolder)
+    _ensure_dir(folder)
+    filename = f"{today}_{prefix}.csv"
+    return os.path.join(folder, filename)
+
+
+def log_trade(row: dict) -> None:
+    """
+    row example:
+    {
+        "time": "2025-11-16 14:30:00",
+        "symbol": "XAUUSD",
+        "direction": "BUY",
+        "entry": 1925.50,
+        "sl": 1919.00,
+        "tp": 1935.00,
+        "risk_pct": 1.0,
+        "result": "open"  # or "win"/"loss"/"breakeven"
+    }
+    """
+    try:
+        path = _get_daily_log_path("trades", "trades")
+        write_header = not os.path.exists(path)
+        with open(path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=row.keys())
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+    except Exception:
+        # don't crash the bot because of logging
+        pass
+
+
+def log_setup(row: dict) -> None:
+    """
+    row example:
+    {
+        "time": "2025-11-16 14:25:00",
+        "symbol": "XAUUSD",
+        "score": 8,
+        "direction": "SELL",
+        "reason": "4H/1H bias short, liquidity sweep, FVG, A+"
+    }
+    """
+    try:
+        path = _get_daily_log_path("setups", "setups")
+        write_header = not os.path.exists(path)
+        with open(path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=row.keys())
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+    except Exception:
+        pass
+
+
+def log_error(message: str) -> None:
+    """
+    Saves errors into logs/errors/...
+    """
+    try:
+        path = _get_daily_log_path("errors", "errors")
+        write_header = not os.path.exists(path)
+        with open(path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(["time", "message"])
+            now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            writer.writerow([now, message])
+    except Exception:
+        pass
+
+
+def log_debug(message: str) -> None:
+    """
+    Light-weight debug logging to logs/debug/...
+    """
+    try:
+        path = _get_daily_log_path("debug", "debug")
+        write_header = not os.path.exists(path)
+        with open(path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(["time", "message"])
+            now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            writer.writerow([now, message])
+    except Exception:
+        pass
 
 # ------------------------------------------------------------
 # Bot Version
@@ -1156,6 +1267,7 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
 
