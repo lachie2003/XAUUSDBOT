@@ -17,11 +17,20 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, black, white
 from reportlab.pdfgen import canvas
 import json
+from license_manager import verify_license
+
 
 # ------------------------------------------------------------
 # Bot Version
 # ------------------------------------------------------------
 BOT_VERSION = "1.0.1"
+
+# ------------------------------------------------------------
+# Licensing
+# ------------------------------------------------------------
+# Put your license key here.
+# Later, when you sell this, each user will get their own key.
+LICENSE_KEY = "TJR-GODMODE-001"
 
 # ------------------------------------------------------------
 # Auto Update Import
@@ -42,6 +51,22 @@ if need_update:
     print("[UPDATE] Update applied. Exiting so launcher can restart the bot...")
     print("[UPDATE] If you started this manually, just run it again.")
     sys.exit(0)
+# ------------------------------------------------------------
+# License Check
+# ------------------------------------------------------------
+print("[LICENSE] Verifying license...")
+
+licensed, lic_msg = verify_license(LICENSE_KEY)
+print("[LICENSE]", lic_msg)
+
+# If you have BOT_STATE already defined later, we'll update it there.
+# For now, just block trading if not licensed.
+if not licensed:
+    # You can choose:
+    #  - allow DRY_RUN only
+    #  - or exit completely
+    print("[LICENSE] NOT LICENSED - bot will run in DRY_RUN mode only.")
+    # We'll assume you have a DRY_RUN variable later in the file.
 
 
 # ============================================================
@@ -1123,4 +1148,5 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
