@@ -155,7 +155,15 @@ MT5_PATH = SECRETS.get("mt5", {}).get(
 )
 
 trading_cfg = CONFIG.get("trading", {})
+# Trading mode from config
 DRY_RUN = bool(trading_cfg.get("dry_run", False))
+
+# Licensing override: if not licensed, force DRY_RUN=True
+if not licensed:
+    DRY_RUN = True
+    print("[LICENSE] Forcing DRY_RUN=True because bot is NOT licensed.")
+else:
+    print(f"[LICENSE] DRY_RUN remains {DRY_RUN} (licensed).")
 RISK_PER_TRADE = float(trading_cfg.get("risk_per_trade", 0.01))
 MIN_SCORE = float(trading_cfg.get("min_score", 7))
 REFRESH_SECONDS = int(trading_cfg.get("refresh_seconds", 60))
@@ -1148,5 +1156,6 @@ def main():
 if __name__ == "__main__":
     threading.Thread(target=run_dashboard, daemon=True).start()
     main()
+
 
 
