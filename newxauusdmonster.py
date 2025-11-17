@@ -19,6 +19,40 @@ from reportlab.pdfgen import canvas
 import json
 from license_manager import verify_license
 
+# ------------------------------------------------------------
+# Auto Update Import
+# ------------------------------------------------------------
+from auto_update import check_for_update, apply_update
+
+# ------------------------------------------------------------
+# Auto Update Check
+# ------------------------------------------------------------
+
+# Set this True to stop auto-updates while coding locally.
+DEBUG_DISABLE_AUTO_UPDATE = False
+
+if DEBUG_DISABLE_AUTO_UPDATE:
+    print("[UPDATE] Auto-update disabled (DEV mode).")
+else:
+    print("[UPDATE] Checking for new version...")
+
+    try:
+        need_update, msg = check_for_update()
+        print("[UPDATE]", msg)
+
+        if need_update:
+            ok, msg2 = apply_update()
+            print("[UPDATE]", msg2)
+
+            if ok:
+                print("[UPDATE] Update applied. Exiting so launcher can restart the bot...")
+                print("[UPDATE] If you started this manually, just run it again.")
+                sys.exit(0)
+
+    except Exception as e:
+        print("[UPDATE] Auto-update check failed:", e)
+        log_event("errors.log", f"Auto-update error: {e}")
+
 # =========================
 # SIMPLE LOGGING HELPERS
 # =========================
@@ -688,7 +722,8 @@ def find_setup():
     return Setup(direction, entry, sl, tp, score, rationale)
 def create_trade_chart(setup: Setup) -> str:
     """
-    Save a simple M5 close-price chart with entry/SL/TP lines.
+    Save an AI-styled M5 candlestick chart with entry/SL/TP lines
+    and XAU MONSTER AI branding.
     Returns the filepath, or "" if failed.
     """
     try:
@@ -697,42 +732,152 @@ def create_trade_chart(setup: Setup) -> str:
         log_event("errors.log", f"matplotlib not available for chart: {e}")
         return ""
 
+    # Fetch recent M5 data
     df = fetch(SYMBOL, mt5.TIMEFRAME_M5, 200)
     if df.empty:
         log_event("errors.log", "No M5 data for trade chart")
         return ""
 
-    df = df.tail(120)
+    # Use last 80 bars for a tighter, focused view
+    df = df.tail(80).copy()
+    df.reset_index(drop=True, inplace=True)
 
     try:
-        plt.figure(figsize=(10, 5))
-        plt.plot(df["time"], df["close"], linewidth=1.2)
+        # --- Figure / Axes setup ---
+        fig, ax = plt.subplots(figsize=(10, 5))
 
-        # horizontal lines
-        plt.axhline(setup.entry, linestyle="--", linewidth=0.9)
-        plt.axhline(setup.sl, linestyle="--", linewidth=0.9)
-        plt.axhline(setup.tp, linestyle="--", linewidth=0.9)
+        # Dark AI / Monster theme
+        fig.patch.set_facecolor("#050608")   # outer background
+        ax.set_facecolor("#050608")          # plot background
 
-        plt.title(
-            f"{SYMBOL} {setup.direction.upper()} "
-            f"Entry {setup.entry:.2f} SL {setup.sl:.2f} TP {setup.tp:.2f} "
-            f"Score {setup.score:.1f}"
+        # Hide top/right spines for cleaner look
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_color("#444444")
+        ax.spines["left"].set_color("#444444")
+
+        ax.tick_params(axis="x", colors="#888888", labelrotation=45)
+        ax.tick_params(axis="y", colors="#888888")
+        ax.yaxis.label.set_color("#AAAAAA")
+        ax.xaxis.label.set_color("#AAAAAA")
+
+        # --- Build candlesticks ---
+        x_vals = list(range(len(df)))
+        candle_width = 0.4
+
+        for i, row in df.iterrows():
+            o = row["open"]
+            h = row["high"]
+            l = row["low"]
+            c_price = row["close"]
+
+            # Bull or bear
+            bullish = c_price >= o
+
+            body_bottom = o if bullish else c_price
+            body_top = c_price if bullish else o
+
+            # Wick (high-low)
+            ax.vlines(
+                x=i,
+                ymin=l,
+                ymax=h,
+                color="#3A3A3A",
+                linewidth=1.0,
+                alpha=0.8,
+            )
+
+            # Body
+            ax.add_patch(
+                plt.Rectangle(
+                    (i - candle_width / 2, body_bottom),
+                    candle_width,
+                    body_top - body_bottom if body_top != body_bottom else 0.0001,
+                    edgecolor="#FFD700" if bullish else "#BB4444",
+                    facecolor="#1A1A1A" if bullish else "#220000",
+                    linewidth=0.8,
+                )
+            )
+
+        # --- Horizontal levels: Entry, SL, TP ---
+        entry = setup.entry
+        sl = setup.sl
+        tp = setup.tp
+
+        ax.axhline(entry, linestyle="--", linewidth=1.1, color="#00FFB3", alpha=0.9, label="Entry")
+        ax.axhline(sl, linestyle="--", linewidth=1.1, color="#FF4D4D", alpha=0.9, label="SL")
+        ax.axhline(tp, linestyle="--", linewidth=1.1, color="#FFD700", alpha=0.9, label="TP")
+
+        # --- X-axis labels (time) ---
+        # Show only every 10th bar as label for readability
+        times = df["time"].dt.tz_convert(UTC) if df["time"].dt.tz is not None else df["time"]
+        label_idx = list(range(0, len(df), max(1, len(df)//6)))
+        ax.set_xticks(label_idx)
+        ax.set_xticklabels(
+            [times.iloc[i].strftime("%m-%d %H:%M") for i in label_idx],
+            fontsize=8,
         )
-        plt.xlabel("Time (M5)")
-        plt.ylabel("Price")
-        plt.xticks(rotation=45)
+
+        # --- Title / labels ---
+        ax.set_title(
+            f"{SYMBOL} {setup.direction.upper()}  |  Score {setup.score:.1f}",
+            color="#FFFFFF",
+            fontsize=13,
+            pad=10,
+        )
+        ax.set_xlabel("Time (M5)")
+        ax.set_ylabel("Price")
+
+        # --- Legend ---
+        ax.legend(
+            facecolor="#050608",
+            edgecolor="#444444",
+            labelcolor="#DDDDDD",
+            fontsize=8,
+            loc="upper left",
+        )
+
+        # --- XAU MONSTER AI branding text ---
+        # Top-right corner text
+        ax.text(
+            0.99,
+            0.98,
+            "XAU MONSTER AI",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=10,
+            color="#FFD700",
+            alpha=0.95,
+        )
+
+        # Bottom-left info (version + timestamp)
+        ax.text(
+            0.01,
+            0.02,
+            f"{BOT_VERSION}  |  {dt.datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=7,
+            color="#777777",
+        )
+
         plt.tight_layout()
 
-        fname = f"{SYMBOL}_{dt.datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.png"
+        # --- Save chart ---
+        fname = f"{SYMBOL}_{setup.direction.upper()}_{dt.datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.png"
         fpath = os.path.join(CHART_DIR, fname)
-        plt.savefig(fpath, dpi=120)
-        plt.close()
+        plt.savefig(fpath, dpi=130)
+        plt.close(fig)
 
         log_event("events.log", f"Trade chart saved: {fpath}")
         return fpath
+
     except Exception as e:
         log_event("errors.log", f"Failed to create trade chart: {e}")
         return ""
+
 
 # ============================================================
 # RISK & ORDER EXECUTION
@@ -1035,9 +1180,188 @@ def generate_weekly_report(now_utc: dt.datetime):
 
     avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
 
-    # ======================================================
+def generate_weekly_report(now_utc: dt.datetime):
+    monday_start, friday_end, label, week_no = get_week_bounds(now_utc)
+    pdf_name = f"week_{week_no}.pdf"
+    pdf_path = os.path.join(REPORT_DIR, pdf_name)
+
+# ============================================================
+# WEEKLY CSV EXPORTER (8B)
+# ============================================================
+
+def export_weekly_csv(now_utc: dt.datetime):
+    monday_start, friday_end, label, week_no = get_week_bounds(now_utc)
+
+    # Name of the combined CSV
+    csv_name = f"week_{week_no}.csv"
+    csv_path = os.path.join(REPORT_DIR, csv_name)
+
+    # If already exists, don't regenerate
+    if os.path.exists(csv_path):
+        log_event("events.log", f"Weekly CSV already exists: {csv_name}")
+        return
+
+    # Fetch deal history
+    try:
+        deals = mt5.history_deals_get(monday_start, friday_end)
+    except Exception as e:
+        log_event("errors.log", f"CSV history_deals_get error: {e}")
+        return
+
+    if deals is None or len(deals) == 0:
+        log_event("events.log", f"No deals found for weekly CSV ({label})")
+        return
+
+    # Filter symbol + magic
+    rows = []
+    for d in deals:
+        try:
+            if getattr(d, "symbol", "") != SYMBOL:
+                continue
+            if getattr(d, "magic", 0) != MAGIC:
+                continue
+
+            rows.append({
+                "time": dt.datetime.fromtimestamp(d.time, UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                "ticket": d.ticket,
+                "symbol": d.symbol,
+                "position_id": d.position_id,
+                "price": d.price,
+                "profit": d.profit,
+                "volume": d.volume,
+                "type": d.type,
+                "comment": d.comment,
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        log_event("events.log", f"No closed trades for weekly CSV ({label})")
+        return
+
+    # Write CSV
+    try:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+
+        log_event("events.log", f"Weekly CSV generated: {csv_name}")
+
+        # Send to Telegram
+        send_telegram_document(
+            csv_path,
+            caption=f"📊 Weekly CSV Export ({label})"
+        )
+
+    except Exception as e:
+        log_event("errors.log", f"Failed to write weekly CSV: {e}")
+
+    # If already exists, don't regenerate
+    if os.path.exists(pdf_path):
+        log_event("events.log", f"Weekly report already exists: {pdf_name}")
+        return
+
+    # fetch deal history for this week
+    try:
+        deals = mt5.history_deals_get(monday_start, friday_end)
+    except Exception as e:
+        log_event("errors.log", f"history_deals_get error: {e}")
+        return
+
+    if deals is None or len(deals) == 0:
+        log_event("events.log", f"No deals found for weekly report ({label})")
+        return
+
+    # filter our symbol + magic + non-zero profit
+    filtered = []
+    for d in deals:
+        try:
+            if getattr(d, "symbol", "") != SYMBOL:
+                continue
+            if getattr(d, "magic", 0) != MAGIC:
+                continue
+            if float(getattr(d, "profit", 0.0)) == 0.0:
+                continue
+            filtered.append(d)
+        except Exception:
+            continue
+
+    if not filtered:
+        log_event("events.log", f"No closed trades for weekly report ({label})")
+        return
+
+    # sort by time for equity curve / streaks
+    filtered = sorted(filtered, key=lambda x: x.time)
+
+    profits = [float(d.profit) for d in filtered]
+    total_trades = len(profits)
+    total_pnl = sum(profits)
+
+    # win / loss stats
+    wins = [p for p in profits if p > 0]
+    losses = [p for p in profits if p < 0]
+    num_wins = len(wins)
+    num_losses = len(losses)
+    win_rate = (num_wins / total_trades * 100.0) if total_trades > 0 else 0.0
+
+    gross_profit = sum(wins) if wins else 0.0
+    gross_loss = sum(losses) if losses else 0.0  # negative number
+    profit_factor = (
+        gross_profit / abs(gross_loss) if gross_loss < 0 else 0.0
+    )
+
+    avg_win = (gross_profit / num_wins) if num_wins > 0 else 0.0
+    avg_loss = (gross_loss / num_losses) if num_losses > 0 else 0.0  # negative
+
+    best_trade = max(profits)
+    worst_trade = min(profits)
+    avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
+
+    # equity curve (starting at 0 for the week)
+    eq = []
+    running = 0.0
+    for p in profits:
+        running += p
+        eq.append(running)
+
+    # max drawdown
+    peak = eq[0]
+    max_dd = 0.0
+    for v in eq:
+        if v > peak:
+            peak = v
+        dd = peak - v
+        if dd > max_dd:
+            max_dd = dd
+
+    # daily PnL breakdown (Mon-Fri)
+    daily_pnl: Dict[str, float] = {
+        "Mon": 0.0,
+        "Tue": 0.0,
+        "Wed": 0.0,
+        "Thu": 0.0,
+        "Fri": 0.0,
+    }
+    for d_obj, p in zip(filtered, profits):
+        try:
+            t = d_obj.time
+            if not isinstance(t, dt.datetime):
+                t = dt.datetime.fromtimestamp(int(t))
+            day_idx = t.weekday()  # 0=Mon
+            if 0 <= day_idx <= 4:
+                key = ["Mon", "Tue", "Wed", "Thu", "Fri"][day_idx]
+                daily_pnl[key] += p
+        except Exception:
+            continue
+
+    # best / worst day
+    best_day, best_day_pnl = max(daily_pnl.items(), key=lambda x: x[1])
+    worst_day, worst_day_pnl = min(daily_pnl.items(), key=lambda x: x[1])
+
+    # ================
     # CREATE DARK THEME PDF
-    # ======================================================
+    # ================
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
 
@@ -1057,14 +1381,19 @@ def generate_weekly_report(now_utc: dt.datetime):
     c.drawString(40, height - 70, f"Week: {label}")
     c.drawString(40, height - 85, f"Generated: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}")
 
-    # stats block
+    # ---- Summary block ----
     y = height - 120
     line_h = 16
-    c.setFont("Helvetica", 12)
-    stats_lines = [
+    c.setFont("Helvetica-Bold", 13)
+    c.setFillColor(gold)
+    c.drawString(40, y, "Week Summary")
+    y -= line_h + 4
+
+    c.setFont("Helvetica", 11)
+    c.setFillColor(grey)
+    summary_lines = [
         f"Total Trades: {total_trades}",
-        f"Wins: {wins}",
-        f"Losses: {losses}",
+        f"Wins: {num_wins}   Losses: {num_losses}",
         f"Win Rate: {win_rate:.1f}%",
         f"Total PnL: ${total_pnl:.2f} USD",
         f"Best Trade: ${best_trade:.2f} USD",
@@ -1072,11 +1401,50 @@ def generate_weekly_report(now_utc: dt.datetime):
         f"Max Drawdown: ${max_dd:.2f} USD",
         f"Average PnL per Trade: ${avg_pnl:.2f} USD",
     ]
-    for line in stats_lines:
+    for line in summary_lines:
         c.drawString(40, y, line)
         y -= line_h
 
-    # equity curve box
+    # ---- Risk / quality block ----
+    y -= 10
+    c.setFont("Helvetica-Bold", 13)
+    c.setFillColor(gold)
+    c.drawString(40, y, "Risk / Quality Metrics")
+    y -= line_h + 4
+
+    c.setFont("Helvetica", 11)
+    c.setFillColor(grey)
+    rq_lines = [
+        f"Gross Profit: ${gross_profit:.2f} USD",
+        f"Gross Loss: ${gross_loss:.2f} USD",
+        f"Profit Factor: {profit_factor:.2f}" if profit_factor > 0 else "Profit Factor: n/a",
+        f"Average Win: ${avg_win:.2f} USD" if num_wins > 0 else "Average Win: n/a",
+        f"Average Loss: ${avg_loss:.2f} USD" if num_losses > 0 else "Average Loss: n/a",
+    ]
+    for line in rq_lines:
+        c.drawString(40, y, line)
+        y -= line_h
+
+    # ---- Daily breakdown ----
+    y -= 10
+    c.setFont("Helvetica-Bold", 13)
+    c.setFillColor(gold)
+    c.drawString(40, y, "Daily PnL (Mon–Fri)")
+    y -= line_h + 4
+
+    c.setFont("Helvetica", 11)
+    c.setFillColor(grey)
+    for day in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
+        pnl = daily_pnl[day]
+        c.drawString(40, y, f"{day}: ${pnl:.2f} USD")
+        y -= line_h
+
+    y -= 6
+    c.drawString(40, y, f"Best Day: {best_day} (${best_day_pnl:.2f} USD)")
+    y -= line_h
+    c.drawString(40, y, f"Worst Day: {worst_day} (${worst_day_pnl:.2f} USD)")
+
+    # ---- Equity curve box ----
     box_x = 40
     box_y = 140
     box_w = width - 80
@@ -1084,11 +1452,10 @@ def generate_weekly_report(now_utc: dt.datetime):
 
     c.setStrokeColor(gold)
     c.rect(box_x, box_y, box_w, box_h, stroke=1, fill=0)
-    c.setFont("Helvetica", 12)
+    c.setFont("Helvetica", 11)
     c.setFillColor(grey)
     c.drawString(box_x, box_y + box_h + 15, "Equity Curve (PnL over week, USD)")
 
-    # draw equity curve line
     if len(eq) >= 2:
         min_eq = min(eq + [0.0])
         max_eq = max(eq + [0.0])
@@ -1114,7 +1481,6 @@ def generate_weekly_report(now_utc: dt.datetime):
             c.line(prev_x, prev_y, x, y2)
             prev_x, prev_y = x, y2
 
-    # footer
     c.setFont("Helvetica-Oblique", 8)
     c.setFillColor(grey)
     c.drawRightString(width - 20, 20, "TJR Monster Bot — XAUUSD NY Session")
@@ -1124,21 +1490,18 @@ def generate_weekly_report(now_utc: dt.datetime):
 
     log_event("events.log", f"Weekly report generated: {pdf_name}")
 
-    # Telegram summary
     summary = (
         f"📊 <b>WEEKLY REPORT</b> ({label})\n\n"
         f"Total Trades: {total_trades}\n"
-        f"Wins: {wins} | Losses: {losses}\n"
-        f"Win Rate: {win_rate:.1f}%\n"
+        f"Wins: {num_wins} | Losses: {num_losses} | Win Rate: {win_rate:.1f}%\n"
         f"Total PnL: ${total_pnl:.2f} USD\n"
-        f"Best Trade: ${best_trade:.2f} USD\n"
-        f"Worst Trade: ${worst_trade:.2f} USD\n"
+        f"Best Trade: ${best_trade:.2f} USD | Worst Trade: ${worst_trade:.2f} USD\n"
         f"Max Drawdown: ${max_dd:.2f} USD\n"
-        f"Avg PnL/Trade: ${avg_pnl:.2f} USD"
+        f"Profit Factor: {profit_factor:.2f}\n"
+        f"Best Day: {best_day} (${best_day_pnl:.2f}) | Worst Day: {worst_day} (${worst_day_pnl:.2f})"
     )
     send_telegram(summary)
 
-    # Telegram PDF
     send_telegram_document(pdf_path, caption=f"📎 Weekly report PDF ({label})")
 
 # ============================================================
@@ -1261,6 +1624,16 @@ def main():
 
         update_state(in_killzone=in_kill, in_news_block=in_news)
 
+    while True:
+        # naive UTC for week calculations + MT5 history
+        now = dt.datetime.utcnow().replace(tzinfo=None)
+        now_utc = dt.datetime.now(UTC)
+
+        in_kill = in_killzone(now_utc)
+        in_news = in_news_block(now_utc)
+
+        update_state(in_killzone=in_kill, in_news_block=in_news)
+
         # Weekly report trigger: Friday after 21:00 UTC
         weekday = now.weekday()  # Monday=0
         hour = now.hour
@@ -1269,9 +1642,10 @@ def main():
             if LAST_REPORT_WEEK != week_no:
                 try:
                     generate_weekly_report(now_utc)
+                    export_weekly_csv(now_utc)      # ← CSV export here
                     LAST_REPORT_WEEK = week_no
                 except Exception as e:
-                    log_event("errors.log", f"Weekly report error: {e}")
+                    log_event("errors.log", f"Weekly report/CSV error: {e}")
 
         if not in_kill:
             dbg("Outside killzone")
