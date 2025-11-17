@@ -29,7 +29,7 @@ from auto_update import check_for_update, apply_update
 # ------------------------------------------------------------
 
 # Set this True to stop auto-updates while coding locally.
-DEBUG_DISABLE_AUTO_UPDATE = False
+DEBUG_DISABLE_AUTO_UPDATE = True
 
 if DEBUG_DISABLE_AUTO_UPDATE:
     print("[UPDATE] Auto-update disabled (DEV mode).")
@@ -186,7 +186,7 @@ sys.excepthook = global_exception_handler
 # ------------------------------------------------------------
 # Bot Version
 # ------------------------------------------------------------
-BOT_VERSION = "1.0.1"
+BOT_VERSION = "1.0.2"
 
 # ------------------------------------------------------------
 # Licensing
